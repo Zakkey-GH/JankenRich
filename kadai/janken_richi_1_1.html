@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- Chart.jsライブラリのインポート -->
+  <link rel="stylesheet" href="css/sample.css">
+  <title>じゃんけん</title>
+  <!-- Pyscriptのインポート -->
+  <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css">
+  <script defer src="https://pyscript.net/latest/pyscript.js"></script>
+</head>
+
+<body>
+  <header>
+    <h1>じゃんけん</h1>
+  </header>
+  <main>
+    <ul>
+      <li id="gu_btn">グー</li>
+      <li id="cho_btn">チョキ</li>
+      <li id="par_btn">パー</li>
+    </ul>
+    <div>コンピュータの出した手は？「<span id="pc_hands">なに？</span>」</div>
+    <div id="judgment">□□□</div>
+    <canvas id="jankenChart" width="400" height="200"></canvas> <!-- グラフ描画用キャンバス -->
+  </main>
+  <footer></footer>
+
+  <!-- Pyscriptで過去の手に基づく予測アルゴリズムを使用 -->
+  <py-script>
+import random
+from pyodide.ffi import create_proxy
+from js import document, console, send_results
+
+# プレイヤーの手と勝敗の履歴を記録するためのリストと変数
+history = []
+results = {"win": 0, "lose": 0, "draw": 0}  # 勝敗の集計
+round_count = 0  # 30本勝負のラウンド数
+
+# CPUが次に選ぶ手を予測（単純な履歴に基づくロジック）
+def predict_next_hand():
+    if len(history) == 0:
+        return random.randint(0, 2)
+    else:
+        count_gu = history.count(0)
+        count_cho = history.count(1)
+        count_par = history.count(2)
+        if count_gu > count_cho and count_gu > count_par:
+            return 2  # パー
+        elif count_cho > count_gu and count_cho > count_par:
+            return 0  # グー
+        else:
+            return 1  # チョキ
+
+# じゃんけんの結果を判定する関数
+def janken_result(player_hand, cpu_hand):
+    if player_hand == (cpu_hand + 1) % 3:
+        return 'lose'  # 負け
+    elif cpu_hand == (player_hand + 1) % 3:
+        return 'win'   # 勝ち
+    else:
+        return 'draw'  # 引き分け
+
+# JavaScriptに結果を送信する関数
+def send_results_to_js():
+    # 勝敗の集計をJavaScriptに渡す
+    result_data = {
+        "labels": ["勝ち", "負け", "引き分け"],
+        "values": [results["win"], results["lose"], results["draw"]]
+    }
+    console.log(result_data)  # コンソールでデータを確認
+    send_results(result_data)  # JavaScriptの関数を呼び出してデータを送信
+
+# JavaScriptから呼び出される関数
+def play_janken(player_hand):
+    global round_count
+    if round_count >= 30:  # 30本勝負終了後
+        document.getElementById("judgment").innerText = "ゲーム終了。リセットしてください"
+        return
+    
+    # プレイヤーの手を履歴に追加
+    history.append(player_hand)
+    # CPUの手を予測
+    cpu_hand = predict_next_hand()
+    # 結果を判定
+    result = janken_result(player_hand, cpu_hand)
+
+    # 勝敗を集計
+    results[result] += 1
+    round_count += 1
+
+    # 結果を表示
+    text_janken = ["グー", "チョキ", "パー"]
+    document.getElementById("pc_hands").innerText = text_janken[cpu_hand]
+    document.getElementById("judgment").innerText = f"{result}: 勝ち{results['win']}, 負け{results['lose']}, 引き分け{results['draw']}"
+
+    # JavaScriptに集計結果を送信
+    send_results_to_js()
+
+# ボタンにイベントリスナーを追加
+def add_event_listeners():
+    document.getElementById("gu_btn").addEventListener("click", create_proxy(lambda event: play_janken(0)))
+    document.getElementById("cho_btn").addEventListener("click", create_proxy(lambda event: play_janken(1)))
+    document.getElementById("par_btn").addEventListener("click", create_proxy(lambda event: play_janken(2)))
+
+# ページ読み込み完了時にイベントリスナーを初期化
+add_event_listeners()
+
+  </py-script>
+
+  <script>
+    // Chart.jsを使って集計結果を表示する関数
+    function initialize_chart(data) {
+        const ctx = document.getElementById('jankenChart').getContext('2d');
+
+        // 既存のチャートがあるか確認し、あれば破棄
+        let existingChart = Chart.getChart(ctx.canvas);
+        if (existingChart) {
+            existingChart.destroy(); // 既存のチャートを破棄
+        }
+
+        // 新しいチャートを作成
+        const myChart = new Chart(ctx, {
+            type: 'bar', // チャートのタイプ ('bar', 'line', 'pie', など)
+            data: {
+                labels: data.labels, // X軸のラベル
+                datasets: [{
+                    label: 'じゃんけん結果', // データセットのラベル
+                    data: data.values, // Y軸の値
+                    backgroundColor: ['rgba(75, 192, 192, 0.2)', 'rgba(255, 99, 132, 0.2)', 'rgba(255, 206, 86, 0.2)'], // バーの背景色
+                    borderColor: ['rgba(75, 192, 192, 1)', 'rgba(255, 99, 132, 1)', 'rgba(255, 206, 86, 1)'], // バーの境界線の色
+                    borderWidth: 1 // バーの境界線の幅
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true // Y軸をゼロから始める設定
+                    }
+                }
+            }
+        });
+    }
+
+    // Pythonから結果を受け取ってチャートを更新する関数
+    function send_results(data) {
+        console.log("Received data from Python:", data); // 受け取ったデータを確認
+        initialize_chart(data); // データを渡してチャートを更新
+    }
+  </script>
+
+</body>
+
+</html>
